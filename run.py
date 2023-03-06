@@ -1,18 +1,17 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import os
+import argparse
 
 from load_data import load_data, get_dl
 
-from bigram import Bigram
-from nanoGPT_v1 import NanoGPT_v1
-from nanoGPT_v2 import NanoGPT_v2
-from nanoGPT_v3 import NanoGPT_v3
-from nanoGPT_v4 import NanoGPT_v4
+from models.bigram import Bigram
+from models.nanoGPT_v1 import NanoGPT_v1
+from models.nanoGPT_v2 import NanoGPT_v2
+from models.nanoGPT_v3 import NanoGPT_v3
+from models.nanoGPT_v4 import NanoGPT_v4
 from configs import (
     Bigram_configs,
     NanoGPT_v1_configs,
@@ -78,7 +77,6 @@ def train_model(
         device_config["accelerator"] = "cpu"
     else:
         device_config["accelerator"] = "gpu"
-        device_config["devices"] = [0, 1, 2, 3]  # We have
         device_config[
             "strategy"
         ] = "ddp_find_unused_parameters_false"  # Allow to have unused parameters
@@ -139,18 +137,36 @@ def generate_predictions(
     return x_generated
 
 
-if __name__ == "__main__":
-    """---------------------------------------"""
-    # use_gpu = False
-    use_gpu = True
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="nanoGPT",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,  # Show default value
+    )
 
-    # use_model = "bigram"
-    # use_model = "nanoGPT_v1"
-    # use_model = "nanoGPT_v2"
-    # use_model = "nanoGPT_v3"
-    # use_model = "nanoGPT_v4"
-    use_model = "nanoGPT_v4_scaled"
-    """---------------------------------------"""
+    parser.add_argument("--use_gpu", action="store_true", help="use GPU")
+    parser.add_argument(
+        "--use_model",
+        type=str,
+        help="model name",
+        default="nanoGPT_v4_scaled",
+        choices=[
+            "bigram",
+            "nanoGPT_v1",
+            "nanoGPT_v2",
+            "nanoGPT_v3",
+            "nanoGPT_v4",
+            "nanoGPT_v4_scaled",
+        ],
+    )
+
+    # Allow unrecognized arguments
+    args, _ = parser.parse_known_args()
+
+    return args
+
+
+if __name__ == "__main__":
+    args = parse_args()
 
     # Set all random seeds (Python, NumPy, PyTorch)
     pl.seed_everything(seed=0)
@@ -159,7 +175,7 @@ if __name__ == "__main__":
     data, vocab_size, encode, decode = load_data()
 
     # Get configs and model
-    configs, model = get_configs_and_model(use_model, vocab_size)
+    configs, model = get_configs_and_model(args.use_model, vocab_size)
 
     # Get DataLoader
     train_dl, test_dl = get_dl(data, configs["block_size"], configs["batch_size"])
@@ -167,7 +183,7 @@ if __name__ == "__main__":
     # Train
     print("---------------------------------------")
     print("Training ...")
-    trainer = train_model(train_dl, test_dl, model, use_model, use_gpu)
+    trainer = train_model(train_dl, test_dl, model, args.use_model, args.use_gpu)
 
     # Test
     print("---------------------------------------")
@@ -183,7 +199,7 @@ if __name__ == "__main__":
         decode,
         configs["block_size"],
         test_loss_dict["test_loss"],
-        use_model,
+        args.use_model,
         max_new_tokens=10000,
     )
     print("### Done ###")

@@ -2,16 +2,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from base import BaseModel
+from .base import BaseModel
 
 
 class Head(nn.Module):
-    def __init__(self, block_size: int, n_embd: int, head_size: int) -> None:
+    def __init__(
+        self, block_size: int, n_embd: int, head_size: int, dropout: float
+    ) -> None:
         super().__init__()
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape
@@ -25,6 +28,7 @@ class Head(nn.Module):
             self.tril[:T, :T] == 0, float("-inf")
         )  # (B, T, T)
         weights = F.softmax(weights, dim=-1)  # (B, T, T)
+        weights = self.dropout(weights)
         # perform the weighted aggregation of the values
         out = weights @ v  # (B, T, H)
 
@@ -32,11 +36,13 @@ class Head(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, block_size: int, n_embd: int, n_head: int) -> None:
+    def __init__(
+        self, block_size: int, n_embd: int, n_head: int, dropout: float
+    ) -> None:
         super().__init__()
         head_size = n_embd // n_head
         self.heads = nn.ModuleList(
-            [Head(block_size, n_embd, head_size) for _ in range(n_head)]
+            [Head(block_size, n_embd, head_size, dropout) for _ in range(n_head)]
         )
         self.proj = nn.Linear(n_embd, n_embd)
 
@@ -48,12 +54,14 @@ class MultiHeadAttention(nn.Module):
 
 
 class FeedForward(nn.Module):
-    def __init__(self, n_embd: int) -> None:
+    def __init__(self, n_embd: int, dropout: float) -> None:
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_embd, 4 * n_embd),
-            nn.GELU(),
+            # nn.GELU(),
+            nn.ReLU(),
             nn.Linear(4 * n_embd, n_embd),
+            nn.Dropout(dropout),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -61,18 +69,22 @@ class FeedForward(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, block_size: int, n_embd: int, n_head: int) -> None:
+    def __init__(
+        self, block_size: int, n_embd: int, n_head: int, dropout: float
+    ) -> None:
         super().__init__()
-        self.sa = MultiHeadAttention(block_size, n_embd, n_head)
-        self.ffwd = FeedForward(n_embd)
+        self.sa = MultiHeadAttention(block_size, n_embd, n_head, dropout)
+        self.ffwd = FeedForward(n_embd, dropout)
+        self.ln_1 = nn.LayerNorm(n_embd)
+        self.ln_2 = nn.LayerNorm(n_embd)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.sa(x)  # (B, T, C)
-        x = x + self.ffwd(x)  # (B, T, C)
+        x = x + self.sa(self.ln_1(x))  # (B, T, C)
+        x = x + self.ffwd(self.ln_2(x))  # (B, T, C)
         return x
 
 
-class NanoGPT_v3(BaseModel):
+class NanoGPT_v4(BaseModel):
     def __init__(
         self,
         vocab_size: int,
@@ -80,6 +92,7 @@ class NanoGPT_v3(BaseModel):
         n_embd: int,
         n_head: int,
         n_layer: int,
+        dropout: float,
         learning_rate: float,
         **kwargs,
     ) -> None:
@@ -89,8 +102,9 @@ class NanoGPT_v3(BaseModel):
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(
-            *[Block(block_size, n_embd, n_head) for _ in range(n_layer)]
+            *[Block(block_size, n_embd, n_head, dropout) for _ in range(n_layer)]
         )
+        self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
         self.loss = nn.CrossEntropyLoss()
 
@@ -104,6 +118,7 @@ class NanoGPT_v3(BaseModel):
         )  # (T, C)
         x = tok_emb + pos_emb  # (B, T, C) + (T, C) --> (B, T, C)
         x = self.blocks(x)  # (B, T, C)
+        x = self.ln_f(x)  # (B, T, C)
         logits = self.lm_head(x)  # (B, T, V)
 
         return logits

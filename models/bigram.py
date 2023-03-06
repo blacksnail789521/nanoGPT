@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from base import BaseModel
+from .base import BaseModel
 
 
 class Bigram(BaseModel):

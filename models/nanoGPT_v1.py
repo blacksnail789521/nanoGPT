@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from base import BaseModel
+from .base import BaseModel
 
 
 class Head(nn.Module):
@@ -31,29 +31,12 @@ class Head(nn.Module):
         return out
 
 
-class MultiHeadAttention(nn.Module):
-    def __init__(self, block_size: int, n_embd: int, n_head: int) -> None:
-        super().__init__()
-        head_size = n_embd // n_head
-        self.heads = nn.ModuleList(
-            [Head(block_size, n_embd, head_size) for _ in range(n_head)]
-        )
-        self.proj = nn.Linear(n_embd, n_embd)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        heads = [head(x) for head in self.heads]  # [(B, T, H), ...]
-        out = torch.cat(heads, dim=-1)  # (B, T, C)
-        out = self.proj(out)  # (B, T, C)
-        return out
-
-
-class NanoGPT_v2(BaseModel):
+class NanoGPT_v1(BaseModel):
     def __init__(
         self,
         vocab_size: int,
         block_size: int,
         n_embd: int,
-        n_head: int,
         learning_rate: float,
         **kwargs,
     ) -> None:
@@ -62,7 +45,7 @@ class NanoGPT_v2(BaseModel):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.sa_heads = MultiHeadAttention(block_size, n_embd, n_head)
+        self.sa_head = Head(block_size, n_embd, n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
         self.loss = nn.CrossEntropyLoss()
 
@@ -75,7 +58,7 @@ class NanoGPT_v2(BaseModel):
             )  # LightningModule has a property `device`
         )  # (T, C)
         x = tok_emb + pos_emb  # (B, T, C) + (T, C) --> (B, T, C)
-        x = self.sa_heads(x)  # (B, T, C)
+        x = self.sa_head(x)  # (B, T, C)
         logits = self.lm_head(x)  # (B, T, V)
 
         return logits

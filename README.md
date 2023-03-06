@@ -1,6 +1,12 @@
 # nanoGPT
 The simplest, fastest repository for training/finetuning medium-sized GPTs.
 
+
+## Running the code
+```
+python run.py --use_gpu --use_model nanoGPT_v4_scaled
+```
+
 |              Method            |                  Details                |     Test Loss    |     # params    |     Model Size    |
 |:------------------------------:|:---------------------------------------:|:----------------:|:---------------:|:-----------------:|
 |        bigram (baseline)       |               Lookup table              |       2.4844     |       4.2 K     |        17 KB      |
