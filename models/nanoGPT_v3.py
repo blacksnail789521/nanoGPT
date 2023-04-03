@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .base import BaseModel
-
 
 class Head(nn.Module):
     def __init__(self, block_size: int, n_embd: int, head_size: int) -> None:
@@ -22,7 +20,7 @@ class Head(nn.Module):
         # compute attention scores ("affinities")
         weights = q @ k.transpose(-2, -1) * C**-0.5  # (B, T, T)
         weights = weights.masked_fill(
-            self.tril[:T, :T] == 0, float("-inf")
+            self.tril[:T, :T] == 0, float("-inf")  # type: ignore
         )  # (B, T, T)
         weights = F.softmax(weights, dim=-1)  # (B, T, T)
         # perform the weighted aggregation of the values
@@ -72,7 +70,7 @@ class Block(nn.Module):
         return x
 
 
-class NanoGPT_v3(BaseModel):
+class NanoGPT_v3(nn.Module):
     def __init__(
         self,
         vocab_size: int,
@@ -80,11 +78,9 @@ class NanoGPT_v3(BaseModel):
         n_embd: int,
         n_head: int,
         n_layer: int,
-        learning_rate: float,
         **kwargs,
     ) -> None:
         super().__init__()
-        self.learning_rate = learning_rate
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
@@ -92,15 +88,14 @@ class NanoGPT_v3(BaseModel):
             *[Block(block_size, n_embd, n_head) for _ in range(n_layer)]
         )
         self.lm_head = nn.Linear(n_embd, vocab_size)
-        self.loss = nn.CrossEntropyLoss()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T = x.shape
         tok_emb = self.token_embedding_table(x)  # (B, T, C), C = n_embd
         pos_emb = self.position_embedding_table(
             torch.arange(
-                T, device=self.device
-            )  # LightningModule has a property `device`
+                T, device=x.device
+            )  # Use the same device as x (for GPU training)
         )  # (T, C)
         x = tok_emb + pos_emb  # (B, T, C) + (T, C) --> (B, T, C)
         x = self.blocks(x)  # (B, T, C)

@@ -6,7 +6,7 @@ import os
 import argparse
 
 from load_data import load_data, get_dl
-
+from models.LightningModuleWrapper import LightningModuleWrapper
 from models.bigram import Bigram
 from models.nanoGPT_v1 import NanoGPT_v1
 from models.nanoGPT_v2 import NanoGPT_v2
@@ -25,6 +25,7 @@ from configs import (
 def get_configs_and_model(
     model_name: str, vocab_size: int
 ) -> tuple[dict, pl.LightningModule]:
+    # Get PyTorch model
     if model_name == "bigram":
         configs = Bigram_configs().__dict__
         model = Bigram(vocab_size=vocab_size, **configs)
@@ -45,6 +46,9 @@ def get_configs_and_model(
         model = NanoGPT_v4(vocab_size=vocab_size, **configs)
     else:
         raise ValueError(f"model_name {model_name} is not supported")
+
+    # Transform PyTorch model to PyTorch Lightning model
+    model = LightningModuleWrapper(model, **configs)
 
     return configs, model
 
@@ -111,20 +115,19 @@ def test_model(
 def generate_predictions(
     model: pl.LightningModule,
     trainer: pl.Trainer,
-    decode: callable,
-    block_size: int,
+    decode: callable,  # type: ignore
     test_loss: float,
     use_model: str,
     max_new_tokens: int = 100,
-) -> torch.tensor:
+) -> torch.Tensor:
     # Generate text (using `predict_step`)
     x_given = torch.zeros(
         4, 1, dtype=torch.long
     )  # 0 means \n (we need to specify the batch size for the first dimension)
     zero_dataloader = DataLoader(TensorDataset(x_given), batch_size=1)
-    model.predict_kwargs = {"max_new_tokens": max_new_tokens, "block_size": block_size}
+    model.hparams.max_new_tokens = max_new_tokens  # type: ignore
     x_generated_list = trainer.predict(model, dataloaders=zero_dataloader)
-    x_generated = x_generated_list[0]  # only get the first batch
+    x_generated = x_generated_list[0]  # only get the first batch # type: ignore
 
     # Save the generated text
     text_path = os.path.join(
@@ -134,7 +137,7 @@ def generate_predictions(
     with open(text_path, "w") as f:
         f.write(decode(x_generated[0].tolist()))
 
-    return x_generated
+    return x_generated  # type: ignore
 
 
 def parse_args() -> argparse.Namespace:
@@ -148,7 +151,7 @@ def parse_args() -> argparse.Namespace:
         "--use_model",
         type=str,
         help="model name",
-        default="nanoGPT_v4_scaled",
+        default="bigram",
         choices=[
             "bigram",
             "nanoGPT_v1",
@@ -197,7 +200,6 @@ if __name__ == "__main__":
         model,
         trainer,
         decode,
-        configs["block_size"],
         test_loss_dict["test_loss"],
         args.use_model,
         max_new_tokens=10000,

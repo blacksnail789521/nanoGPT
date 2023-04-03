@@ -8,7 +8,7 @@ import multiprocessing
 
 
 class TinyShakespeareDataset(Dataset):
-    def __init__(self, data: torch.tensor, block_size: int) -> None:
+    def __init__(self, data: torch.Tensor, block_size: int) -> None:
         self.data = data
         self.block_size = block_size
 
@@ -21,7 +21,7 @@ class TinyShakespeareDataset(Dataset):
         return x, y
 
 
-def load_data() -> tuple[torch.tensor, int, callable, callable]:
+def load_data() -> tuple[torch.Tensor, int, callable, callable]:  # type: ignore
     # Load raw text data
     # wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
     with open("input.txt", "r", encoding="utf-8") as f:
@@ -42,8 +42,8 @@ def load_data() -> tuple[torch.tensor, int, callable, callable]:
 
 
 def get_dl(
-    data: torch.tensor, block_size: int, batch_size: int
-) -> tuple[DataLoader, DataLoader, int, callable]:
+    data: torch.Tensor, block_size: int, batch_size: int
+) -> tuple[DataLoader, DataLoader]:
     # Split data into train and test
     n = int(0.9 * len(data))
     train_data, test_data = data[:n], data[n:]
@@ -56,7 +56,9 @@ def get_dl(
     dl_config = {
         "batch_size": batch_size,
         "num_workers": multiprocessing.cpu_count(),
+        "pin_memory": True,
         "persistent_workers": True,
+        "drop_last": True,
     }
     train_dl = DataLoader(train_ds, shuffle=True, **dl_config)
     test_dl = DataLoader(test_ds, shuffle=False, **dl_config)

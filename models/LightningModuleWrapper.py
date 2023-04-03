@@ -1,20 +1,32 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from abc import ABC, abstractmethod
 
 
-class BaseModel(pl.LightningModule, ABC):
-    @abstractmethod
-    def __init__(self) -> None:
+class LightningModuleWrapper(pl.LightningModule):
+    def __init__(
+        self,
+        model: nn.Module,
+        lr: float,
+        max_new_tokens: int = 100,
+        block_size: int = 1024,
+        **kwargs,
+    ) -> None:
         super().__init__()
+        self.model = model
+        self.name = model.__class__.__name__
+        self.save_hyperparameters(
+            ignore=["model"]
+        )  # We can access the hyperparameters via self.hparams
 
-    @abstractmethod
+        self.loss = nn.CrossEntropyLoss()
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        pass
+        return self.model(x)
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
+        return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)  # type: ignore
 
     def shared_step(
         self, batch: tuple[torch.Tensor, torch.Tensor], mode: str
@@ -41,12 +53,12 @@ class BaseModel(pl.LightningModule, ABC):
 
     def validation_step(
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    ) -> None:
         loss = self.shared_step(batch, "val")
 
     def test_step(
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    ) -> None:
         loss = self.shared_step(batch, "test")
 
     def predict_step(
@@ -55,9 +67,11 @@ class BaseModel(pl.LightningModule, ABC):
         x = batch[0]
         x_generated = x.clone()
         # x is (B, T) array of indices in the current context
-        for _ in range(self.predict_kwargs["max_new_tokens"]):
+        for _ in range(self.hparams.max_new_tokens):  # type: ignore
             # crop the context to the last block_size tokens
-            x_context = x_generated[:, -self.predict_kwargs["block_size"]:]  # (B, T)
+            x_context = x_generated[
+                :, -self.hparams.block_size :  # type: ignore
+            ]  # (B, T)
             # get the predictions
             y_pred = self(x_context)  # (B, T, V)
             # focus only on the last time step (we don't care about the history)
